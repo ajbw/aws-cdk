@@ -85,8 +85,8 @@ export abstract class Match {
   /**
    * Matches targets according to a regular expression
    */
-  public static stringLikeRegexp(pattern: string): Matcher {
-    return new StringLikeRegexpMatch('stringLikeRegexp', pattern);
+  public static stringLikeRegexp(pattern: string, flags?: string): Matcher {
+    return new StringLikeRegexpMatch('stringLikeRegexp', pattern, flags);
   }
 }
 
@@ -470,7 +470,8 @@ class AnyMatch extends Matcher {
 class StringLikeRegexpMatch extends Matcher {
   constructor(
     public readonly name: string,
-    private readonly pattern: string) {
+    private readonly pattern: string,
+    private readonly flags?: string) {
 
     super();
   }
@@ -478,7 +479,7 @@ class StringLikeRegexpMatch extends Matcher {
   test(actual: any): MatchResult {
     const result = new MatchResult(actual);
 
-    const regex = new RegExp(this.pattern, 'gm');
+    const regex = new RegExp(this.pattern, this.flags ?? 'gm');
 
     if (typeof actual !== 'string') {
       result.recordFailure({
@@ -498,5 +499,4 @@ class StringLikeRegexpMatch extends Matcher {
 
     return result;
   }
-
 }
