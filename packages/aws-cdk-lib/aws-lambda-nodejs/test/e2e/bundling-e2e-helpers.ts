@@ -101,6 +101,7 @@ export interface TestProject {
   dir: string;
   outdir: string;
   entryFile: string;
+  lockfile: string;
   cleanup: () => void;
 }
 
@@ -143,7 +144,8 @@ export function createProject(pkgManager: keyof typeof LOCK_FILES, handlerExt: '
 
   // Lock file
   const lock = LOCK_FILES[pkgManager];
-  fs.writeFileSync(path.join(dir, lock.name), lock.content);
+  const lockfile = path.join(dir, lock.name);
+  fs.writeFileSync(lockfile, lock.content);
 
   // Handler
   const handlerContent = handlerExt === '.ts' ? TS_HANDLER : JS_HANDLER;
@@ -167,6 +169,7 @@ export function createProject(pkgManager: keyof typeof LOCK_FILES, handlerExt: '
     dir,
     outdir,
     entryFile,
+    lockfile,
     cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
   };
 }

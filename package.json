@@ -180,6 +180,7 @@
     ]
   },
   "dependencies": {
+    "@types/jest": "^30.0.0",
     "string-width": "^4.2.3",
     "tar": "^7.5.20"
   },

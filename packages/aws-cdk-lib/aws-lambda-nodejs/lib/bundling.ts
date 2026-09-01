@@ -71,6 +71,11 @@ export interface BundlingProps extends BundlingOptions {
   readonly preCompilation?: boolean;
 
   /**
+   * Path to workspace root (defaults to project root)
+   */
+  readonly workspaceRoot: string;
+
+  /**
    * Which option to use to copy the source files to the docker container and output files back
    * @default - BundlingFileAccess.BIND_MOUNT
    */
@@ -85,7 +90,7 @@ export class Bundling implements cdk.BundlingOptions {
    * esbuild bundled Lambda asset code
    */
   public static bundle(scope: IConstruct, options: BundlingProps): AssetCode {
-    return Code.fromAsset(options.projectRoot, {
+    return Code.fromAsset(options.workspaceRoot, {
       assetHash: options.assetHash,
       assetHashType: options.assetHash ? cdk.AssetHashType.CUSTOM : cdk.AssetHashType.OUTPUT,
       bundling: new Bundling(scope, options),
@@ -120,6 +125,7 @@ export class Bundling implements cdk.BundlingOptions {
   public readonly bundlingFileAccess?: cdk.BundlingFileAccess;
 
   private readonly projectRoot: string;
+  private readonly workspaceRoot: string;
   private readonly relativeEntryPath: string;
   private readonly relativeTsconfigPath?: string;
   private readonly relativeDepsLockFilePath: string;
@@ -133,15 +139,21 @@ export class Bundling implements cdk.BundlingOptions {
     Bundling.tscInstallation = Bundling.tscInstallation ?? PackageInstallation.detect('typescript');
 
     this.projectRoot = props.projectRoot;
-    this.relativeEntryPath = path.relative(this.projectRoot, path.resolve(props.entry));
-    this.relativeDepsLockFilePath = path.relative(this.projectRoot, path.resolve(props.depsLockFilePath));
+    const depsLockFileRelativeToProjectRoot = path
+      .relative(this.projectRoot, path.resolve(props.depsLockFilePath));
+    this.workspaceRoot = props.workspaceRoot ??
+      (pathEscapesRoot(depsLockFileRelativeToProjectRoot)
+        ? path.dirname(props.depsLockFilePath)
+        : props.projectRoot);
+    this.relativeEntryPath = path.relative(this.workspaceRoot, path.resolve(props.entry));
+    this.relativeDepsLockFilePath = path.relative(this.workspaceRoot, path.resolve(props.depsLockFilePath));
 
     if (pathEscapesRoot(this.relativeEntryPath)) {
-      throw new ValidationError(lit`PathNotUnderRoot`, `entryPath (${props.entry}) should be under projectRoot (${this.projectRoot})`, scope);
+      throw new ValidationError(lit`PathNotUnderRoot`, `entryPath (${props.entry}) should be under workspaceRoot (${this.workspaceRoot}), but is relative: ${this.relativeEntryPath}`, scope);
     }
 
     if (pathEscapesRoot(this.relativeDepsLockFilePath)) {
-      throw new ValidationError(lit`PathNotUnderRoot`, `depsLockFilePath (${props.depsLockFilePath}) should be under projectRoot (${this.projectRoot})`, scope);
+      throw new ValidationError(lit`PathNotUnderRoot`, `depsLockFilePath (${props.depsLockFilePath}) should be under workspaceRoot (${this.workspaceRoot}), but is relative: ${this.relativeDepsLockFilePath}`, scope);
     }
 
     if (props.tsconfig) {
@@ -329,7 +341,13 @@ export class Bundling implements cdk.BundlingOptions {
     return [{
       type: 'shell',
       commands: [chain([
-        isPnpm ? osCommand.write(pathJoin(options.outputDir, 'pnpm-workspace.yaml'), '') : '',
+        isPnpm
+          // Ensure node_modules directory is installed locally by creating local 'pnpm-workspace.yaml' file
+          ? osCommand.copy(
+            pathJoin(options.inputDir, 'pnpm-workspace.yaml'),
+            pathJoin(options.outputDir, 'pnpm-workspace.yaml'),
+          )
+          : '',
         osCommand.writeJson(pathJoin(options.outputDir, 'package.json'), { dependencies: deps.dependencies }),
         osCommand.copy(lockFilePath, pathJoin(options.outputDir, this.packageManager.lockFile)),
         osCommand.changeDirectory(options.outputDir),
@@ -344,7 +362,7 @@ export class Bundling implements cdk.BundlingOptions {
    * Produces callback+spawn steps for file operations in local bundling.
    */
   private localFileOps(outputDir: string, deps: NodeModuleDeps): BundlingStep[] {
-    const lockFilePath = path.join(this.projectRoot, this.relativeDepsLockFilePath ?? this.packageManager.lockFile);
+    const lockFilePath = path.join(this.workspaceRoot, this.relativeDepsLockFilePath ?? this.packageManager.lockFile);
     const isPnpm = this.packageManager.lockFile === LockFile.PNPM;
     const isBun = this.packageManager.lockFile === LockFile.BUN_LOCK || this.packageManager.lockFile === LockFile.BUN;
 
@@ -354,7 +372,11 @@ export class Bundling implements cdk.BundlingOptions {
       type: 'callback',
       operation: () => {
         if (isPnpm) {
-          fs.writeFileSync(path.join(outputDir, 'pnpm-workspace.yaml'), '');
+          // Ensure node_modules directory is installed locally by creating local 'pnpm-workspace.yaml' file
+          fs.copyFileSync(
+            path.join(this.workspaceRoot, 'pnpm-workspace.yaml'),
+            path.join(outputDir, 'pnpm-workspace.yaml'),
+          );
         }
         fs.writeFileSync(path.join(outputDir, 'package.json'), JSON.stringify({ dependencies: deps.dependencies }));
         fs.copyFileSync(lockFilePath, path.join(outputDir, this.packageManager.lockFile));
@@ -390,7 +412,7 @@ export class Bundling implements cdk.BundlingOptions {
   }
 
   private getLocalBundlingProvider(scope: IConstruct): cdk.ILocalBundling {
-    const cwd = this.projectRoot;
+    const cwd = this.workspaceRoot;
 
     return {
       tryBundle: (outputDir: string) => {

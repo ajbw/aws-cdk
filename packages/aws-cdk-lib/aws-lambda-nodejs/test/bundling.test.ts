@@ -42,6 +42,7 @@ beforeEach(() => {
 });
 
 let projectRoot = '/project';
+let workspaceRoot = '/project';
 let depsLockFilePath = '/project/yarn.lock';
 let entry = '/project/lib/handler.ts';
 let tsconfig = '/project/lib/custom-tsconfig.ts';
@@ -50,6 +51,7 @@ test('esbuild bundling in Docker', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -91,6 +93,7 @@ test('esbuild bundling with handler named index.ts', () => {
   Bundling.bundle(stack, {
     entry: '/project/lib/index.ts',
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -113,6 +116,7 @@ test('esbuild bundling with verbose log level', () => {
   Bundling.bundle(stack, {
     entry: '/project/lib/index.ts',
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -136,6 +140,7 @@ test('esbuild bundling with tsx handler', () => {
   Bundling.bundle(stack, {
     entry: '/project/lib/handler.tsx',
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -159,13 +164,14 @@ test('esbuild with Windows paths', () => {
   // Mock path.basename() because it cannot extract the basename of a Windows
   // path when running on Linux
   jest.spyOn(path, 'basename').mockReturnValueOnce('package-lock.json');
-  jest.spyOn(path, 'relative').mockReturnValueOnce('lib\\entry.ts').mockReturnValueOnce('package-lock.json');
+  jest.spyOn(path, 'relative').mockReturnValueOnce('package-lock.json').mockReturnValueOnce('lib\\entry.ts').mockReturnValueOnce('package-lock.json');
 
   Bundling.bundle(stack, {
     entry: 'C:\\my-project\\lib\\entry.ts',
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
     projectRoot: 'C:\\my-project',
+    workspaceRoot: 'C:\\my-project',
     depsLockFilePath: 'C:\\my-project\\package-lock.json',
     forceDockerBundling: true,
   });
@@ -186,6 +192,7 @@ test('esbuild bundling with externals and dependencies', () => {
   Bundling.bundle(stack, {
     entry: __filename,
     projectRoot: path.dirname(packageLock),
+    workspaceRoot: path.dirname(packageLock),
     depsLockFilePath: packageLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -216,6 +223,7 @@ test('esbuild bundling with esbuild options', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -283,6 +291,7 @@ test('throws with ESM and NODEJS_12_X', () => {
   expect(() => Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_12_X,
     architecture: Architecture.X86_64,
@@ -294,6 +303,7 @@ test('allows entry whose filename contains ".." (regression for issue #38017)', 
   expect(() => Bundling.bundle(stack, {
     entry: '/project/lib/app..js',
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -308,6 +318,7 @@ test('allows entry inside a directory whose name contains ".." (regression for i
   expect(() => Bundling.bundle(stack, {
     entry: '/project/node_modules/.pnpm/file+..+other+pkg+0.0.1/lib/handler.ts',
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -319,6 +330,7 @@ test('allows depsLockFilePath inside a directory whose name contains ".." (regre
   expect(() => Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath: '/project/.pnpm/file+..+pkg/yarn.lock',
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -330,22 +342,24 @@ test('throws when entry is outside projectRoot', () => {
   expect(() => Bundling.bundle(stack, {
     entry: '/other/escape.ts',
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
     forceDockerBundling: true,
-  })).toThrow(/entryPath \(\/other\/escape\.ts\) should be under projectRoot/);
+  })).toThrow(/entryPath \(\/other\/escape\.ts\) should be under workspaceRoot/);
 });
 
 test('throws when depsLockFilePath is outside projectRoot', () => {
   expect(() => Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath: '/other/yarn.lock',
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
     forceDockerBundling: true,
-  })).toThrow(/depsLockFilePath \(\/other\/yarn\.lock\) should be under projectRoot/);
+  })).toThrow(/depsLockFilePath \(\/other\/yarn\.lock\) should be under workspaceRoot/);
 });
 
 test('throws when entry is on a different Windows drive than projectRoot', () => {
@@ -359,11 +373,12 @@ test('throws when entry is on a different Windows drive than projectRoot', () =>
   expect(() => Bundling.bundle(stack, {
     entry: 'D:\\other\\entry.ts',
     projectRoot: 'C:\\my-project',
+    workspaceRoot,
     depsLockFilePath: 'C:\\my-project\\package-lock.json',
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
     forceDockerBundling: true,
-  })).toThrow(/entryPath \(D:\\other\\entry\.ts\) should be under projectRoot/);
+  })).toThrow(/entryPath \(D:\\other\\entry\.ts\) should be under workspaceRoot/);
 
   osPlatformMock.mockRestore();
 });
@@ -372,6 +387,7 @@ test('esbuild bundling source map default', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -406,6 +422,7 @@ test.each([
   Bundling.bundle(cdkStack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: runtime,
     architecture: Architecture.X86_64,
@@ -433,6 +450,7 @@ test('esbuild bundling with bundleAwsSdk true with feature flag enabled using No
   Bundling.bundle(cdkStack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     bundleAwsSDK: true,
     runtime: Runtime.NODEJS_20_X,
@@ -461,6 +479,7 @@ test('esbuild bundling with feature flag enabled using Node Latest', () => {
   Bundling.bundle(cdkStack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_LATEST,
     architecture: Architecture.X86_64,
@@ -488,6 +507,7 @@ test('esbuild bundling with feature flag enabled using Node 16', () => {
   Bundling.bundle(cdkStack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_16_X,
     architecture: Architecture.X86_64,
@@ -509,6 +529,7 @@ test('esbuild bundling without aws-sdk v3 when use greater than or equal Runtime
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_20_X,
     architecture: Architecture.X86_64,
@@ -530,6 +551,7 @@ test('esbuild bundling includes aws-sdk', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_20_X,
     architecture: Architecture.X86_64,
@@ -552,6 +574,7 @@ test('esbuild bundling source map inline', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -578,6 +601,7 @@ test('esbuild bundling is correctly done with custom runtime matching predefined
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: new Runtime(STANDARD_RUNTIME.name, RuntimeFamily.NODEJS, { supportsInlineCode: true }),
     architecture: Architecture.X86_64,
@@ -602,6 +626,7 @@ test('esbuild bundling source map enabled when only source map mode exists', () 
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -628,6 +653,7 @@ test('esbuild bundling throws when sourceMapMode used with false sourceMap', () 
     Bundling.bundle(stack, {
       entry,
       projectRoot,
+      workspaceRoot,
       depsLockFilePath,
       runtime: STANDARD_RUNTIME,
       architecture: Architecture.X86_64,
@@ -642,6 +668,7 @@ test('Detects yarn.lock', () => {
   Bundling.bundle(stack, {
     entry: __filename,
     projectRoot: path.dirname(yarnLock),
+    workspaceRoot: path.dirname(yarnLock),
     depsLockFilePath: yarnLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -665,6 +692,7 @@ test('Detects pnpm-lock.yaml', () => {
   Bundling.bundle(stack, {
     entry: __filename,
     projectRoot: path.dirname(pnpmLock),
+    workspaceRoot: path.dirname(pnpmLock),
     depsLockFilePath: pnpmLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -677,7 +705,7 @@ test('Detects pnpm-lock.yaml', () => {
     assetHashType: AssetHashType.OUTPUT,
     bundling: expect.objectContaining({
       command: expect.arrayContaining([
-        expect.stringMatching(/echo '' > '\/asset-output\/pnpm-workspace.yaml\'.+pnpm-lock\.yaml.+pnpm install --config.node-linker=hoisted --config.package-import-method=clone-or-copy --no-prefer-frozen-lockfile && rm -f "\/asset-output\/node_modules\/.modules.yaml"/),
+        expect.stringMatching(/cp '\/asset-input\/pnpm-workspace.yaml' '\/asset-output\/pnpm-workspace.yaml\'.+pnpm-lock\.yaml.+pnpm install --config.node-linker=hoisted --config.package-import-method=clone-or-copy --no-prefer-frozen-lockfile && rm -f "\/asset-output\/node_modules\/.modules.yaml"/),
       ]),
     }),
   });
@@ -688,6 +716,7 @@ test('Detects bun.lockb', () => {
   Bundling.bundle(stack, {
     entry: __filename,
     projectRoot: path.dirname(bunLock),
+    workspaceRoot: path.dirname(bunLock),
     depsLockFilePath: bunLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -711,6 +740,7 @@ test('Detects bun.lock', () => {
   Bundling.bundle(stack, {
     entry: __filename,
     projectRoot: path.dirname(bunLock),
+    workspaceRoot: path.dirname(bunLock),
     depsLockFilePath: bunLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -733,6 +763,7 @@ test('with Docker build args', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -762,6 +793,7 @@ test('Local bundling', () => {
   const bundler = new Bundling(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -816,6 +848,7 @@ test('Incorrect esbuild version', () => {
   const bundler = new Bundling(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -830,6 +863,7 @@ test('Custom bundling docker image', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -849,6 +883,7 @@ test('with command hooks', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -884,6 +919,7 @@ test('esbuild bundling with projectRoot', () => {
   Bundling.bundle(stack, {
     entry: '/project/lib/index.ts',
     projectRoot: '/project',
+    workspaceRoot,
     depsLockFilePath,
     tsconfig,
     runtime: STANDARD_RUNTIME,
@@ -908,6 +944,7 @@ test('esbuild bundling with projectRoot and externals and dependencies', () => {
   Bundling.bundle(stack, {
     entry: __filename,
     projectRoot: repoRoot,
+    workspaceRoot: repoRoot,
     depsLockFilePath: packageLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -940,6 +977,7 @@ test('esbuild bundling with pre compilations', () => {
   Bundling.bundle(stack, {
     entry: __filename.replace('.js', '.ts'),
     projectRoot: path.dirname(packageLock),
+    workspaceRoot: path.dirname(packageLock),
     depsLockFilePath: packageLock,
     runtime: STANDARD_RUNTIME,
     preCompilation: true,
@@ -972,6 +1010,7 @@ test('throws with pre compilation and not found tsconfig', () => {
     Bundling.bundle(stack, {
       entry,
       projectRoot,
+      workspaceRoot,
       depsLockFilePath,
       runtime: STANDARD_RUNTIME,
       forceDockerBundling: true,
@@ -985,6 +1024,7 @@ test('with custom hash', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     forceDockerBundling: true,
@@ -1003,6 +1043,7 @@ test('Custom bundling entrypoint', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1022,6 +1063,7 @@ test('Custom bundling volumes', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1041,6 +1083,7 @@ test('Custom bundling volumesFrom', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1060,6 +1103,7 @@ test('Custom bundling workingDirectory', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1079,6 +1123,7 @@ test('Custom bundling user', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1098,6 +1143,7 @@ test('Custom bundling securityOpt', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1117,6 +1163,7 @@ test('Custom bundling network', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1136,6 +1183,7 @@ test('Custom bundling file copy variant', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1155,6 +1203,7 @@ test('bundling using NODEJS_LATEST doesn\'t externalize anything by default', ()
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_LATEST,
     architecture: Architecture.X86_64,
@@ -1175,6 +1224,7 @@ test('bundling with <= Node16 warns when sdk v3 is external', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_16_X,
     architecture: Architecture.X86_64,
@@ -1191,6 +1241,7 @@ test('bundling with <= Node16 does not warn with default externalModules', () =>
   Bundling.bundle(myStack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_16_X,
     architecture: Architecture.X86_64,
@@ -1208,6 +1259,7 @@ test('bundling with >= Node18 warns when sdk v2 is external', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_20_X,
     architecture: Architecture.X86_64,
@@ -1224,6 +1276,7 @@ test('bundling with >= Node18 does not warn with default externalModules', () =>
   Bundling.bundle(myStack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_20_X,
     architecture: Architecture.X86_64,
@@ -1241,6 +1294,7 @@ test('bundling with NODEJS_LATEST warns when any dependencies are external', () 
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_LATEST,
     architecture: Architecture.X86_64,
@@ -1256,6 +1310,7 @@ test('Node 16 runtimes warn about sdk v2 upgrades', () => {
   Bundling.bundle(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: Runtime.NODEJS_16_X,
     architecture: Architecture.X86_64,
@@ -1274,6 +1329,7 @@ test('Docker bundling with preCompilation uses getTsconfigCompilerOptionsArray f
   Bundling.bundle(stack, {
     entry: __filename.replace('.js', '.ts'),
     projectRoot: path.dirname(packageLock),
+    workspaceRoot: path.dirname(packageLock),
     depsLockFilePath: packageLock,
     runtime: STANDARD_RUNTIME,
     preCompilation: true,
@@ -1319,6 +1375,7 @@ test('Local bundling callback failure includes contextual error message', () => 
   const bundler = new Bundling(stack, {
     entry: __filename,
     projectRoot: path.dirname(packageLock),
+    workspaceRoot: path.dirname(packageLock),
     depsLockFilePath: packageLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1353,6 +1410,7 @@ test('Local bundling with esbuild options via spawn', () => {
   const bundler = new Bundling(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1432,6 +1490,7 @@ test('Local bundling with nodeModules uses fs and spawn', () => {
   const bundler = new Bundling(stack, {
     entry: __filename,
     projectRoot: path.dirname(packageLock),
+    workspaceRoot: path.dirname(packageLock),
     depsLockFilePath: packageLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1469,6 +1528,7 @@ test('Local bundling with commandHooks executes hooks via shell', () => {
   const bundler = new Bundling(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1514,6 +1574,7 @@ test('Local bundling with preCompilation spawns tsc directly', () => {
   const bundler = new Bundling(stack, {
     entry: __filename.replace('.js', '.ts'),
     projectRoot: path.dirname(packageLock),
+    workspaceRoot: path.dirname(packageLock),
     depsLockFilePath: packageLock,
     runtime: STANDARD_RUNTIME,
     preCompilation: true,
@@ -1553,6 +1614,7 @@ test('Local bundling with shell metacharacters in externalModules does not cause
   const bundler = new Bundling(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1584,6 +1646,7 @@ test('Local bundling on Windows uses powershell for spawn steps', () => {
   const bundler = new Bundling(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1616,6 +1679,7 @@ test('Local bundling on Windows uses cmd for shell steps', () => {
   const bundler = new Bundling(stack, {
     entry,
     projectRoot,
+    workspaceRoot,
     depsLockFilePath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1666,6 +1730,7 @@ test('Local bundling with pnpm uses fs for workspace yaml and cleanup', () => {
   const bundler = new Bundling(stack, {
     entry: __filename,
     projectRoot: pnpmProjectRoot,
+    workspaceRoot: pnpmProjectRoot,
     depsLockFilePath: pnpmLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1684,7 +1749,7 @@ test('Local bundling with pnpm uses fs for workspace yaml and cleanup', () => {
   bundler.local?.tryBundle('/outdir', { image: STANDARD_RUNTIME.bundlingDockerImage });
 
   // pnpm-workspace.yaml is written
-  expect(writeFileSyncMock).toHaveBeenCalledWith('/outdir/pnpm-workspace.yaml', '');
+  expect(copyFileSyncMock).toHaveBeenCalledWith(`${pnpmProjectRoot}/pnpm-workspace.yaml`, '/outdir/pnpm-workspace.yaml');
   // .modules.yaml is cleaned up
   expect(rmSyncMock).toHaveBeenCalledWith(
     '/outdir/node_modules/.modules.yaml',
@@ -1714,6 +1779,7 @@ test('Docker bundling escapes shell metacharacters in nodeModules dependency ver
   Bundling.bundle(stack, {
     entry: __filename,
     projectRoot: path.dirname(packageLock),
+    workspaceRoot: path.dirname(packageLock),
     depsLockFilePath: packageLock,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,
@@ -1742,6 +1808,7 @@ test('Docker bundling escapes shell metacharacters in the nodeModules lock file 
   Bundling.bundle(stack, {
     entry: __filename,
     projectRoot: pkgRoot,
+    workspaceRoot: pkgRoot,
     depsLockFilePath: depsLockPath,
     runtime: STANDARD_RUNTIME,
     architecture: Architecture.X86_64,

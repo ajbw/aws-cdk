@@ -107,6 +107,7 @@ describeDockerSuite((forceDockerBundling) => {
 
     cdkSynth(project, {
       entry: project.entryFile,
+      depsLockFilePath: project.lockfile,
       bundling: {
         forceDockerBundling,
         preCompilation: true,
