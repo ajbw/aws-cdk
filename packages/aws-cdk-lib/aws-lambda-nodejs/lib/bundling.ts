@@ -512,7 +512,7 @@ export class Bundling implements cdk.BundlingOptions {
 
   @profileFn('NodejsFunction#tryBundle', { telemetry: true })
   private executeBundlingSteps(scope: IConstruct, steps: BundlingStep[]) {
-    const cwd = this.projectRoot;
+    const cwd = this.workspaceRoot;
     const osPlatform = os.platform();
     const isWindows = osPlatform === 'win32';
     const environment = this.props.environment ?? {};
