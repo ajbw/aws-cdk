@@ -50,8 +50,11 @@ const bundlingConfig = {
 };
 
 new NodejsFunction(stack, 'Fn', {
-  // Normally 'entry' is resolved w.r.t. this file, but we want to resolve it w.r.t. the working directory, so make it absolute.
+  // Normally these paths are resolved w.r.t. this file, but we want to resolve them w.r.t. the working directory, so make them absolute.
   entry: path.resolve(config.entry),
+  workspaceRoot: config.workspaceRoot ? path.resolve(config.workspaceRoot) : undefined,
+  projectRoot: config.projectRoot ? path.resolve(config.projectRoot) : undefined,
+  depsLockFilePath: config.depsLockFilePath ? path.resolve(config.depsLockFilePath) : undefined,
   runtime,
   bundling: bundlingConfig,
 });

@@ -1,5 +1,6 @@
 
 import child_process from 'child_process';
+import path from 'path';
 import { bockfs } from '@aws-cdk/cdk-build-tools';
 import { Annotations, Template, Match } from '../../assertions';
 import { Vpc } from '../../aws-ec2';
@@ -9,6 +10,8 @@ import { App, Stack } from '../../core';
 import { LAMBDA_NODEJS_USE_LATEST_RUNTIME } from '../../cx-api';
 import { NodejsFunction } from '../lib';
 import { Bundling } from '../lib/bundling';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const util = require('../lib/util');
 
 jest.mock('../lib/bundling', () => {
   return {
@@ -305,6 +308,183 @@ test('resolves entry to an absolute path', () => {
   expect(Bundling.bundle).toHaveBeenCalledWith(stack, expect.objectContaining({
     entry: bockPath.translate`/home/project/aws-lambda-nodejs/lib/index.ts`,
   }));
+});
+
+describe('workspaceRoot', () => {
+  beforeEach(() => {
+    bockfs({
+      '/home/project/workspace/package.json': '{}',
+      '/home/project/workspace/pnpm-lock.yaml': '{}',
+      '/home/project/workspace/package/package.json': '{}',
+      '/home/project/workspace/package/handler.ts': '// nothing',
+    });
+  });
+
+  test('defaults to the directory containing depsLockFilePath', () => {
+    new NodejsFunction(stack, 'handler1', {
+      depsLockFilePath: bockPath.translate`/home/project/workspace/pnpm-lock.yaml`,
+      entry: bockPath.translate`/home/project/workspace/package/handler.ts`,
+    });
+
+    expect(Bundling.bundle).toHaveBeenCalledWith(stack, expect.objectContaining({
+      workspaceRoot: bockPath.translate`/home/project/workspace`,
+    }));
+  });
+
+  test('explicit workspaceRoot overrides the depsLockFilePath directory', () => {
+    bockfs({
+      '/home/project/workspace/package/pnpm-lock.yaml': '{}',
+    });
+    new NodejsFunction(stack, 'handler1', {
+      workspaceRoot: bockPath.translate`/home/project/workspace`,
+      depsLockFilePath: bockPath.translate`/home/project/workspace/package/pnpm-lock.yaml`,
+      entry: bockPath.translate`/home/project/workspace/package/handler.ts`,
+    });
+
+    expect(Bundling.bundle).toHaveBeenCalledWith(stack, expect.objectContaining({
+      workspaceRoot: bockPath.translate`/home/project/workspace`,
+    }));
+  });
+});
+
+describe('projectRoot', () => {
+  beforeEach(() => {
+    bockfs({
+      '/home/project/workspace/package.json': '{}',
+      '/home/project/workspace/pnpm-lock.yaml': '{}',
+      '/home/project/workspace/package/package.json': '{}',
+      '/home/project/workspace/package/handler.ts': '// nothing',
+    });
+  });
+
+  test('defaults to the directory containing the nearest package.json found from the CDK app entry point', () => {
+    // No explicit `projectRoot`. Node's `require.main` is a genuine CJS mechanism, and jest reproduces it
+    // faithfully for code (like function.ts) required transitively from this test file: `require.main`
+    // points back at this test file, so the real `findUp('package.json', ...)` walks up from `test/`
+    // and lands on this package's own package.json.
+    new NodejsFunction(stack, 'handler1', {
+      depsLockFilePath: bockPath.translate`/home/project/workspace/pnpm-lock.yaml`,
+      entry: bockPath.translate`/home/project/workspace/package/handler.ts`,
+    });
+
+    expect(Bundling.bundle).toHaveBeenCalledWith(stack, expect.objectContaining({
+      projectRoot: path.resolve(__dirname, '..', '..'),
+    }));
+  });
+
+  test('falls back to the directory containing depsLockFilePath when no CDK app entry point can be found', () => {
+    const findUpMock = jest.spyOn(util, 'findUp').mockReturnValue(undefined);
+
+    new NodejsFunction(stack, 'handler1', {
+      depsLockFilePath: bockPath.translate`/home/project/workspace/pnpm-lock.yaml`,
+      entry: bockPath.translate`/home/project/workspace/package/handler.ts`,
+    });
+
+    expect(Bundling.bundle).toHaveBeenCalledWith(stack, expect.objectContaining({
+      projectRoot: bockPath.translate`/home/project/workspace`,
+    }));
+
+    findUpMock.mockRestore();
+  });
+
+  test('explicit projectRoot overrides the CDK app entry point default', () => {
+    new NodejsFunction(stack, 'handler1', {
+      projectRoot: bockPath.translate`/home/project/workspace`,
+      depsLockFilePath: bockPath.translate`/home/project/workspace/pnpm-lock.yaml`,
+      entry: bockPath.translate`/home/project/workspace/package/handler.ts`,
+    });
+
+    expect(Bundling.bundle).toHaveBeenCalledWith(stack, expect.objectContaining({
+      projectRoot: bockPath.translate`/home/project/workspace`,
+    }));
+  });
+});
+
+describe('findEntry', () => {
+  beforeEach(() => {
+    bockfs({
+      '/home/project/workspace/pnpm-lock.yaml': '{}',
+      '/home/project/workspace/package/handler.ts': '// nothing',
+    });
+  });
+
+  test('resolves a relative entry found relative to the current working directory', () => {
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(bockPath.translate`/home/project/workspace/package`);
+
+      new NodejsFunction(stack, 'handler1', {
+        depsLockFilePath: bockPath.translate`/home/project/workspace/pnpm-lock.yaml`,
+        entry: 'handler.ts',
+      });
+
+      expect(Bundling.bundle).toHaveBeenCalledWith(stack, expect.objectContaining({
+        entry: bockPath.translate`/home/project/workspace/package/handler.ts`,
+      }));
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  test('resolves a relative entry found under projectRoot when not found relative to the current working directory', () => {
+    new NodejsFunction(stack, 'handler1', {
+      projectRoot: bockPath.translate`/home/project/workspace/package`,
+      depsLockFilePath: bockPath.translate`/home/project/workspace/pnpm-lock.yaml`,
+      entry: 'handler.ts',
+    });
+
+    expect(Bundling.bundle).toHaveBeenCalledWith(stack, expect.objectContaining({
+      entry: bockPath.translate`/home/project/workspace/package/handler.ts`,
+    }));
+  });
+
+  test('throws EntryFileNotFoundAtAbsolutePath when an absolute entry does not exist', () => {
+    expect(() => new NodejsFunction(stack, 'handler1', {
+      entry: bockPath.translate`/home/project/workspace/package/does-not-exist.ts`,
+    })).toThrow(/Cannot find entry file at .*does-not-exist\.ts$/);
+  });
+
+  test('throws EntryFileNotFoundRelativeToCwdOrProjectRoot when a relative entry is found neither relative to cwd nor under projectRoot', () => {
+    expect(() => new NodejsFunction(stack, 'handler1', {
+      projectRoot: bockPath.translate`/home/project/workspace/package`,
+      depsLockFilePath: bockPath.translate`/home/project/workspace/pnpm-lock.yaml`,
+      entry: 'does-not-exist.ts',
+    })).toThrow(/Cannot find entry file at does-not-exist\.ts nor at .*does-not-exist\.ts \(relative to the project root/);
+  });
+
+  // `EntryFileNotFoundRelativeToProjectRoot` (findEntry's `!projectRoot` branch, function.ts) has no test:
+  // `findEntry` is a private function only ever called from the NodejsFunction constructor, which always
+  // computes a non-empty `projectRoot` default (from an explicit prop, the CDK app entry point, or
+  // depsLockFilePath's directory) before calling it - so `projectRoot` is never falsy in practice, and
+  // this branch is unreachable via the public API.
+});
+
+describe('monorepo integration', () => {
+  beforeEach(() => {
+    bockfs({
+      '/home/project/workspace/package.json': '{}',
+      '/home/project/workspace/pnpm-lock.yaml': '{}',
+      '/home/project/workspace/package/package.json': '{}',
+      '/home/project/workspace/package/handler.ts': '// nothing',
+    });
+  });
+
+  test('workspaceRoot, projectRoot, projectRoot-relative entry', () => {
+    new NodejsFunction(stack, 'handler1', {
+      workspaceRoot: bockPath.translate`/home/project/workspace`,
+      projectRoot: bockPath.translate`/home/project/workspace/package`,
+      depsLockFilePath: bockPath.translate`/home/project/workspace/pnpm-lock.yaml`,
+      // relative, not found at cwd - only resolvable via projectRoot
+      entry: 'handler.ts',
+    });
+
+    expect(Bundling.bundle).toHaveBeenCalledWith(stack, expect.objectContaining({
+      workspaceRoot: bockPath.translate`/home/project/workspace`,
+      projectRoot: bockPath.translate`/home/project/workspace/package`,
+      entry: bockPath.translate`/home/project/workspace/package/handler.ts`,
+      depsLockFilePath: bockPath.translate`/home/project/workspace/pnpm-lock.yaml`,
+    }));
+  });
 });
 
 test('configures connection reuse for aws sdk', () => {

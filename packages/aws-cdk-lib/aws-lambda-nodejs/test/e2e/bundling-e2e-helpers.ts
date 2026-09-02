@@ -97,6 +97,43 @@ export const NPM_LOCK_WITH_DELAY = JSON.stringify({
   },
 });
 
+/**
+ * A real pnpm lock file that includes delay@5.0.0.
+ * Generated via:
+ *   echo '{"name":"test-workspace","version":"1.0.0"}' > package.json && \
+ *   echo '{"packages":["test-project"],"catalog":{"delay":"5.0.0"}}' > pnpm-workspace.yaml && \
+ *   mkdir test-project && \
+ *   echo '{"name":"test","version":"1.0.0","dependencies":{"delay":"catalog:"}}' > test-project/package.json && \
+ *   pnpm i --lockfile-only
+ */
+export const PNPM_LOCK_WITH_DELAY = JSON.stringify({
+  lockfileVersion: '9.0',
+  settings: {
+    autoInstallPeers: true,
+    excludeLinksFromLockfile: false,
+  },
+  importers: {
+    '.': {},
+    'test-project': {
+      dependencies: {
+        delay: {
+          specifier: '5.0.0',
+          version: '5.0.0',
+        },
+      },
+    },
+  },
+  packages: {
+    'delay@5.0.0': {
+      resolution: { integrity: 'sha512-ReEBKkIfe4ya47wlPYf/gu5ib6yUG0/Aez0JQZQz94kiWtRQvZIQbTiehsnwHvLSWJnQdhVeqYue7Id1dKr0qw==' },
+      engines: { node: '>=10' },
+    },
+  },
+  snapshots: {
+    'delay@5.0.0': {},
+  },
+});
+
 export interface TestProject {
   dir: string;
   outdir: string;
@@ -152,18 +189,7 @@ export function createProject(pkgManager: keyof typeof LOCK_FILES, handlerExt: '
   const entryFile = path.join(dir, `handler${handlerExt}`);
   fs.writeFileSync(entryFile, handlerContent);
 
-  // Symlink esbuild so local bundling can find it via npx/yarn run/etc.
-  const nodeModules = path.join(dir, 'node_modules');
-  const dotBin = path.join(nodeModules, '.bin');
-  fs.mkdirSync(dotBin, { recursive: true });
-  fs.symlinkSync(path.join(MONOREPO_NODE_MODULES, 'esbuild'), path.join(nodeModules, 'esbuild'));
-  fs.symlinkSync(path.join(MONOREPO_NODE_MODULES, '.bin', 'esbuild'), path.join(dotBin, 'esbuild'));
-  // esbuild needs its platform-specific binary package
-  const esbuildPlatformPkg = '@esbuild';
-  const esbuildPlatformSrc = path.join(MONOREPO_NODE_MODULES, esbuildPlatformPkg);
-  if (fs.existsSync(esbuildPlatformSrc)) {
-    fs.symlinkSync(esbuildPlatformSrc, path.join(nodeModules, esbuildPlatformPkg));
-  }
+  symlinkRealEsbuild(dir);
 
   return {
     dir,
@@ -171,6 +197,55 @@ export function createProject(pkgManager: keyof typeof LOCK_FILES, handlerExt: '
     entryFile,
     lockfile,
     cleanup: () => fs.rmSync(dir, { recursive: true, force: true }),
+  };
+}
+
+/**
+ * Creates a temporary workspace directory containing a package.json & lock file, and a project within the workspoce with handler and package.json.
+ * If pkgManager is set to pnpm, also creates a pnpm-workspace.yaml
+ */
+export function createProjectMonorepo(pkgManager: keyof typeof LOCK_FILES, handlerExt: '.ts' | '.js'): TestProject {
+  // Use 'realpath' to resolve the issue that on macOS the $TMPDIR points to a symlink, which messes with the NodejsFunction
+  const workspaceRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'cdk-e2e-')));
+  const outdir = path.join(workspaceRoot, 'cdk.out');
+
+  // top-level package.json
+  fs.writeFileSync(path.join(workspaceRoot, 'package.json'), JSON.stringify({ name: 'test-workspace', version: '1.0.0' }));
+
+  // Lock file
+  const lock = LOCK_FILES[pkgManager];
+  const lockfile = path.join(workspaceRoot, lock.name);
+  fs.writeFileSync(lockfile, lock.content);
+
+  // pnpm-workspace.yaml
+  if (pkgManager === 'pnpm') {
+    const workspaceConfig = path.join(workspaceRoot, 'pnpm-workspace.yaml');
+    fs.writeFileSync(workspaceConfig, JSON.stringify({ packages: ['project'], catalog: { delay: '5.0.0' } }));
+  }
+
+  // project directory
+  const projectRoot = fs.mkdirSync(path.join(workspaceRoot, 'project'), { recursive: true });
+  if (!projectRoot) {
+    throw new Error('Something went wrong creating a project directory inside the workspace');
+  }
+
+  // project package.json
+  fs.writeFileSync(path.join(projectRoot, 'package.json'), JSON.stringify({ name: 'test-project', version: '1.0.0' }));
+
+  // Handler
+  const handlerContent = handlerExt === '.ts' ? TS_HANDLER : JS_HANDLER;
+  const entryFile = path.join(projectRoot, `handler${handlerExt}`);
+  fs.writeFileSync(entryFile, handlerContent);
+
+  symlinkRealEsbuild(workspaceRoot);
+  symlinkRealEsbuild(projectRoot);
+
+  return {
+    dir: workspaceRoot,
+    outdir,
+    entryFile,
+    lockfile,
+    cleanup: () => fs.rmSync(workspaceRoot, { recursive: true, force: true }),
   };
 }
 
@@ -243,4 +318,19 @@ function listFilesRecursive(dir: string, root: string): string[] {
     }
   }
   return results;
+}
+
+function symlinkRealEsbuild(dir: string) {
+  const nodeModules = path.join(dir, 'node_modules');
+  const dotBin = path.join(nodeModules, '.bin');
+  // Symlink esbuild so local bundling can find it via npx/yarn run/etc.
+  fs.mkdirSync(dotBin, { recursive: true });
+  fs.symlinkSync(path.join(MONOREPO_NODE_MODULES, 'esbuild'), path.join(nodeModules, 'esbuild'));
+  fs.symlinkSync(path.join(MONOREPO_NODE_MODULES, '.bin', 'esbuild'), path.join(dotBin, 'esbuild'));
+  // esbuild needs its platform-specific binary package
+  const esbuildPlatformPkg = '@esbuild';
+  const esbuildPlatformSrc = path.join(MONOREPO_NODE_MODULES, esbuildPlatformPkg);
+  if (fs.existsSync(esbuildPlatformSrc)) {
+    fs.symlinkSync(esbuildPlatformSrc, path.join(nodeModules, esbuildPlatformPkg));
+  }
 }

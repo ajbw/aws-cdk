@@ -157,7 +157,10 @@ export class Bundling implements cdk.BundlingOptions {
     }
 
     if (props.tsconfig) {
-      this.relativeTsconfigPath = path.relative(this.projectRoot, path.resolve(props.tsconfig));
+      // Resolved relative to workspaceRoot (not projectRoot): this path is joined onto
+      // inputDir during bundling, and inputDir is always rooted at workspaceRoot (the
+      // directory staged as the Docker/local bundling asset).
+      this.relativeTsconfigPath = path.relative(this.workspaceRoot, path.resolve(props.tsconfig));
     }
 
     if (props.preCompilation && !/\.tsx?$/.test(props.entry)) {

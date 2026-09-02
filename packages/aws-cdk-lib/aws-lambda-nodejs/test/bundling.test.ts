@@ -19,6 +19,13 @@ const STANDARD_EXTERNAL = '@aws-sdk/*';
 let detectPackageInstallationMock: jest.SpyInstance<PackageInstallation | undefined>;
 const app = new App();
 const stack = new Stack(app, 'MyTestStack');
+
+let projectRoot = '/project';
+let workspaceRoot = '/project';
+let depsLockFilePath = '/project/yarn.lock';
+let entry = '/project/lib/handler.ts';
+let tsconfig = '/project/lib/custom-tsconfig.ts';
+
 beforeEach(() => {
   jest.clearAllMocks();
   jest.resetAllMocks();
@@ -39,13 +46,13 @@ beforeEach(() => {
     run: () => { },
     toJSON: () => 'built-image',
   });
-});
 
-let projectRoot = '/project';
-let workspaceRoot = '/project';
-let depsLockFilePath = '/project/yarn.lock';
-let entry = '/project/lib/handler.ts';
-let tsconfig = '/project/lib/custom-tsconfig.ts';
+  projectRoot = '/project';
+  workspaceRoot = '/project';
+  depsLockFilePath = '/project/yarn.lock';
+  entry = '/project/lib/handler.ts';
+  tsconfig = '/project/lib/custom-tsconfig.ts';
+});
 
 test('esbuild bundling in Docker', () => {
   Bundling.bundle(stack, {
@@ -1827,6 +1834,268 @@ test('Docker bundling escapes shell metacharacters in the nodeModules lock file 
   expect(bashScript).not.toContain(`cp "${src}"`);
 });
 
+// --- workspaceRoot !== projectRoot (monorepo) tests ---
+
+describe('workspaceRoot differs from projectRoot', () => {
+  let compiledEntry;
+
+  beforeEach(() => {
+    workspaceRoot = '/workspace';
+    projectRoot = '/workspace/project';
+    depsLockFilePath = '/workspace/yarn.lock';
+    entry = '/workspace/project/lib/handler.ts';
+    compiledEntry = '/workspace/project/lib/handler.js';
+    tsconfig = '/workspace/project/custom-tsconfig.json';
+  });
+
+  test('local bundling without preCompilation uses workspaceRoot as cwd', () => {
+    const spawnSyncMock = jest.spyOn(child_process, 'spawnSync').mockReturnValue(spawnSyncMockReturnValue);
+
+    const bundler = new Bundling(stack, {
+      entry,
+      projectRoot,
+      workspaceRoot,
+      depsLockFilePath,
+      runtime: STANDARD_RUNTIME,
+      architecture: Architecture.X86_64,
+    });
+
+    bundler.local?.tryBundle('/outdir', { image: STANDARD_RUNTIME.bundlingDockerImage });
+
+    const esbuildCall = spawnSyncMock.mock.calls.find(c => c[1]?.includes('--bundle'));
+    expect(esbuildCall).toBeDefined();
+    expect(esbuildCall![1]).toContain(entry);
+    expect(esbuildCall![2]).toEqual(expect.objectContaining({ cwd: workspaceRoot }));
+
+    spawnSyncMock.mockRestore();
+  });
+
+  test('local bundling with preCompilation uses workspaceRoot as cwd for both tsc and esbuild', () => {
+    const spawnSyncMock = jest.spyOn(child_process, 'spawnSync').mockReturnValue(spawnSyncMockReturnValue);
+    // `tsconfig` is a fake path with no file on disk - avoid the real `require(tsconfigPath)`
+    // inside `getTsconfigCompilerOptionsArray` by stubbing its return value directly.
+    const compilerOptionsMock = jest.spyOn(util, 'getTsconfigCompilerOptionsArray').mockReturnValue([]);
+
+    const bundler = new Bundling(stack, {
+      entry,
+      projectRoot,
+      workspaceRoot,
+      depsLockFilePath,
+      runtime: STANDARD_RUNTIME,
+      architecture: Architecture.X86_64,
+      preCompilation: true,
+      tsconfig,
+    });
+
+    bundler.local?.tryBundle('/outdir', { image: STANDARD_RUNTIME.bundlingDockerImage });
+
+    const tscCall = spawnSyncMock.mock.calls.find(c => (c[1] as string[])?.includes(entry));
+    expect(tscCall).toBeDefined();
+    expect(tscCall![2]).toEqual(expect.objectContaining({ cwd: workspaceRoot }));
+
+    const esbuildCall = spawnSyncMock.mock.calls.find(c => c[1]?.includes('--bundle'));
+    expect(esbuildCall).toBeDefined();
+    expect(esbuildCall![1]).toContain(compiledEntry);
+    expect(esbuildCall![2]).toEqual(expect.objectContaining({ cwd: workspaceRoot }));
+
+    spawnSyncMock.mockRestore();
+    compilerOptionsMock.mockRestore();
+  });
+
+  test('explicit tsconfig is resolved relative to workspaceRoot, not projectRoot, for Docker bundling', () => {
+    // Regression test: --tsconfig is joined onto the Docker inputDir (/asset-input), which is
+    // always rooted at workspaceRoot (the directory staged via Code.fromAsset). A tsconfig path
+    // computed relative to projectRoot instead of workspaceRoot would produce the wrong
+    // --tsconfig argument whenever projectRoot is a subdirectory of workspaceRoot.
+    Bundling.bundle(stack, {
+      entry,
+      projectRoot,
+      workspaceRoot,
+      depsLockFilePath,
+      tsconfig,
+      runtime: STANDARD_RUNTIME,
+      architecture: Architecture.X86_64,
+      forceDockerBundling: true,
+    });
+
+    const expectedRelativeTsconfig = path.relative(workspaceRoot, tsconfig);
+
+    expect(Code.fromAsset).toHaveBeenCalledWith(workspaceRoot, {
+      assetHashType: AssetHashType.OUTPUT,
+      bundling: expect.objectContaining({
+        command: [
+          'bash', '-c',
+          expect.stringContaining(`--tsconfig=/asset-input/${expectedRelativeTsconfig}`),
+        ],
+      }),
+    });
+  });
+
+  test('explicit tsconfig is resolved relative to workspaceRoot for local bundling', () => {
+    const spawnSyncMock = jest.spyOn(child_process, 'spawnSync').mockReturnValue(spawnSyncMockReturnValue);
+
+    const bundler = new Bundling(stack, {
+      entry,
+      projectRoot,
+      workspaceRoot,
+      depsLockFilePath,
+      tsconfig,
+      runtime: STANDARD_RUNTIME,
+      architecture: Architecture.X86_64,
+    });
+
+    bundler.local?.tryBundle('/outdir', { image: STANDARD_RUNTIME.bundlingDockerImage });
+
+    const esbuildCall = spawnSyncMock.mock.calls.find(c => c[1]?.includes('--bundle'));
+    expect(esbuildCall).toBeDefined();
+    const args = esbuildCall![1] as string[];
+    // Local bundling joins the relative tsconfig path onto workspaceRoot, which recombines
+    // back to the real, absolute tsconfig path passed in.
+    expect(args).toContain(`--tsconfig=${tsconfig}`);
+
+    spawnSyncMock.mockRestore();
+  });
+
+  test('depsLockFilePath under workspaceRoot but outside projectRoot is accepted', () => {
+    // The lock file lives at the workspace root (common in monorepos), well outside the
+    // package-level projectRoot. Only workspaceRoot-escape is validated, so this must not throw.
+    expect(() => Bundling.bundle(stack, {
+      entry,
+      projectRoot,
+      workspaceRoot,
+      depsLockFilePath,
+      runtime: STANDARD_RUNTIME,
+      architecture: Architecture.X86_64,
+      forceDockerBundling: true,
+    })).not.toThrow();
+
+    expect(Code.fromAsset).toHaveBeenCalledWith(workspaceRoot, expect.objectContaining({
+      assetHashType: AssetHashType.OUTPUT,
+    }));
+  });
+
+  test('entry nested under projectRoot resolves correctly when projectRoot is nested under workspaceRoot', () => {
+    const nestedEntry = path.join(projectRoot, 'handlers', 'nested.test.ts');
+
+    Bundling.bundle(stack, {
+      entry: nestedEntry,
+      projectRoot,
+      workspaceRoot,
+      depsLockFilePath,
+      runtime: STANDARD_RUNTIME,
+      architecture: Architecture.X86_64,
+      forceDockerBundling: true,
+    });
+
+    const expectedRelativeEntry = path.relative(workspaceRoot, nestedEntry);
+
+    expect(Code.fromAsset).toHaveBeenCalledWith(workspaceRoot, {
+      assetHashType: AssetHashType.OUTPUT,
+      bundling: expect.objectContaining({
+        command: [
+          'bash', '-c',
+          expect.stringContaining(`/asset-input/${expectedRelativeEntry}`),
+        ],
+      }),
+    });
+  });
+
+  test('Windows paths with divergent workspaceRoot and projectRoot resolve the entry correctly', () => {
+    const osPlatformMock = jest.spyOn(os, 'platform').mockReturnValue('win32');
+    // The constructor calls path.relative() three times, in order: once for
+    // depsLockFilePath-vs-projectRoot (only used when workspaceRoot is inferred - irrelevant
+    // here since workspaceRoot is explicit), then relativeEntryPath and
+    // relativeDepsLockFilePath, both vs. workspaceRoot. Stub all three with win32-style results.
+    jest.spyOn(path, 'relative')
+      .mockReturnValueOnce('..\\yarn.lock') // depsLockFilePath vs projectRoot (unused)
+      .mockReturnValueOnce('project\\lib\\entry.ts') // relativeEntryPath vs workspaceRoot
+      .mockReturnValueOnce('yarn.lock'); // relativeDepsLockFilePath vs workspaceRoot
+
+    Bundling.bundle(stack, {
+      entry: 'C:\\workspace\\project\\lib\\entry.ts',
+      runtime: STANDARD_RUNTIME,
+      architecture: Architecture.X86_64,
+      projectRoot: 'C:\\workspace\\project',
+      workspaceRoot: 'C:\\workspace',
+      depsLockFilePath: 'C:\\workspace\\package-lock.json',
+      forceDockerBundling: true,
+    });
+
+    expect(Code.fromAsset).toHaveBeenCalledWith('C:\\workspace', expect.objectContaining({
+      bundling: expect.objectContaining({
+        command: expect.arrayContaining([
+          expect.stringContaining('/lib/entry.ts'),
+        ]),
+      }),
+    }));
+
+    osPlatformMock.mockRestore();
+    jest.spyOn(path, 'relative').mockRestore();
+  });
+
+  test('local bundling looks for pnpm-workspace.yaml under workspaceRoot, not projectRoot', () => {
+    const spawnSyncMock = jest.spyOn(child_process, 'spawnSync').mockReturnValue(spawnSyncMockReturnValue);
+    // `nodeModules` triggers a real `findUp('package.json', ...)` walk from the entry's
+    // directory - stub it so the fake `/workspace/project/...` paths don't need a real
+    // package.json on disk. The pnpm-workspace.yaml lookup below is intentionally left
+    // unmocked: it genuinely doesn't exist under `workspaceRoot`, which is what's under test.
+    const findUpMock = jest.spyOn(util, 'findUp').mockReturnValue(path.join(projectRoot, 'package.json'));
+    // `extractDependencies` also does a real `require(pkgPath)` on the (fake) package.json path.
+    const extractDependenciesMock = jest.spyOn(util, 'extractDependencies').mockReturnValue({ delay: '1.0.0' });
+    depsLockFilePath = '/workspace/pnpm-lock.yaml';
+
+    const bundler = new Bundling(stack, {
+      entry,
+      projectRoot,
+      workspaceRoot,
+      depsLockFilePath,
+      runtime: STANDARD_RUNTIME,
+      architecture: Architecture.X86_64,
+      nodeModules: ['delay'],
+    });
+
+    expect(() => {
+      bundler.local?.tryBundle('/outdir', { image: STANDARD_RUNTIME.bundlingDockerImage });
+    }).toThrow(new RegExp(`Local bundling file operation failed.*${workspaceRoot}/pnpm-workspace\\.yaml`));
+
+    spawnSyncMock.mockRestore();
+    findUpMock.mockRestore();
+    extractDependenciesMock.mockRestore();
+  });
+
+  test('Docker bundling copies pnpm-workspace.yaml from workspaceRoot, not projectRoot', () => {
+    // Docker bundling only renders a shell-command string - no real file operations occur -
+    // but `createBundlingSteps` still performs the same real `findUp('package.json', ...)` walk
+    // and `extractDependencies` read, so it needs the same stubs as the local-bundling case above.
+    const findUpMock = jest.spyOn(util, 'findUp').mockReturnValue(path.join(projectRoot, 'package.json'));
+    const extractDependenciesMock = jest.spyOn(util, 'extractDependencies').mockReturnValue({ delay: '1.0.0' });
+    depsLockFilePath = '/workspace/pnpm-lock.yaml';
+
+    Bundling.bundle(stack, {
+      entry,
+      projectRoot,
+      workspaceRoot,
+      depsLockFilePath,
+      runtime: STANDARD_RUNTIME,
+      architecture: Architecture.X86_64,
+      nodeModules: ['delay'],
+      forceDockerBundling: true,
+    });
+
+    expect(Code.fromAsset).toHaveBeenCalledWith(workspaceRoot, expect.objectContaining({
+      bundling: expect.objectContaining({
+        command: [
+          'bash', '-c',
+          expect.stringContaining("cp '/asset-input/pnpm-workspace.yaml' '/asset-output/pnpm-workspace.yaml'"),
+        ],
+      }),
+    }));
+
+    findUpMock.mockRestore();
+    extractDependenciesMock.mockRestore();
+  });
+});
+
 function findParentTsConfigPath(dir: string, depth: number = 1, limit: number = 5): string {
   const target = path.join(dir, 'tsconfig.json');
   if (fs.existsSync(target)) {
@@ -1835,5 +2104,5 @@ function findParentTsConfigPath(dir: string, depth: number = 1, limit: number = 
     return findParentTsConfigPath(path.join(dir, '..'), depth + 1, limit);
   }
 
-  throw new Error(`No \`package.json\` file found within ${depth} parent directories`);
+  throw new Error(`No \`tsconfig.json\` file found within ${depth} parent directories`);
 }

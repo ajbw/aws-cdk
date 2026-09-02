@@ -173,12 +173,12 @@ export class NodejsFunction extends lambda.Function {
       const architecture = props.architecture ?? Architecture.X86_64;
       const depsLockFilePath = findLockFile(scope, props.depsLockFilePath);
       const workspaceRoot = path.resolve(props.workspaceRoot ?? path.dirname(depsLockFilePath));
-      const cjsCdkAppEntry =
+      const cjsCdkAppPackageJson =
         require.main !== undefined
           ? findUp('package.json', path.dirname(require.main.filename))
           : undefined;
       const projectRoot =
-        props.projectRoot ?? (cjsCdkAppEntry ? path.dirname(cjsCdkAppEntry) : path.dirname(depsLockFilePath));
+        props.projectRoot ?? (cjsCdkAppPackageJson ? path.dirname(cjsCdkAppPackageJson) : path.dirname(depsLockFilePath));
       const entry = path.resolve(findEntry(scope, id, props.entry, projectRoot));
       const handler = props.handler ?? 'handler';
 
@@ -298,7 +298,7 @@ function findEntry(scope: Construct, id: string, entry?: string, projectRoot?: s
     if (!fs.existsSync(entryInProjectRoot)) {
       throw new ValidationError(
         lit`EntryFileNotFoundRelativeToCwdOrProjectRoot`,
-        `Cannot find entry file at ${entry} nor at ${entryInProjectRoot} (relative to the project root)`,
+        `Cannot find entry file at ${entry} nor at ${entryInProjectRoot} (relative to the project root ${projectRoot})`,
         scope,
       );
     }
