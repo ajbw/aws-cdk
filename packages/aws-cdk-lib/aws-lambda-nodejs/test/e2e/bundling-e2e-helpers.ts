@@ -108,10 +108,6 @@ export const NPM_LOCK_WITH_DELAY = JSON.stringify({
  */
 export const PNPM_LOCK_WITH_DELAY = JSON.stringify({
   lockfileVersion: '9.0',
-  settings: {
-    autoInstallPeers: true,
-    excludeLinksFromLockfile: false,
-  },
   importers: {
     '.': {},
     'test-project': {
@@ -202,7 +198,7 @@ export function createProject(pkgManager: keyof typeof LOCK_FILES, handlerExt: '
 
 /**
  * Creates a temporary workspace directory containing a package.json & lock file, and a project within the workspoce with handler and package.json.
- * If pkgManager is set to pnpm, also creates a pnpm-workspace.yaml
+ * If pkgManager is set to pnpm, also creates a pnpm-workspace.yaml with a catalog entry, and configures the project to use the catalog entry.
  */
 export function createProjectMonorepo(pkgManager: keyof typeof LOCK_FILES, handlerExt: '.ts' | '.js'): TestProject {
   // Use 'realpath' to resolve the issue that on macOS the $TMPDIR points to a symlink, which messes with the NodejsFunction
