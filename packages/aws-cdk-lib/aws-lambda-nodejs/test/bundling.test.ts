@@ -1837,7 +1837,7 @@ test('Docker bundling escapes shell metacharacters in the nodeModules lock file 
 // --- workspaceRoot !== projectRoot (monorepo) tests ---
 
 describe('workspaceRoot differs from projectRoot', () => {
-  let compiledEntry;
+  let compiledEntry: string;
 
   beforeEach(() => {
     workspaceRoot = '/workspace';
